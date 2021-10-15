@@ -3,10 +3,17 @@
 package solvers
 
 import (
+	"runtime/pprof"
+	"runtime"
+	"os"
+	"unsafe"
 	"fmt"
+	"time"
 	"foxhole/grid"
 	"sync"
 )
+
+const DEBUG = true
 
 /*
 	Current grids which need to be processed.
@@ -32,10 +39,102 @@ var Solution *grid.Grid
 var SolutionLock = sync.Mutex{}
 
 /*
+	Used for tracking the current depth
+*/
+var CurrentDepth = 0
+var DepthLock = sync.Mutex{}
+var Depths = make([]sync.WaitGroup, 2048)
+
+var LastDepthLock = sync.Mutex{}
+var LastDepthTime = time.Now()
+var LastDepth = -1
+
+var TestCounter = 0
+var TestLock = sync.Mutex{}
+
+/*
+	Function for resetting meta values
+*/
+func reset() {
+
+	GridsToProcess = make(chan *grid.Grid)
+	Hashes = make(map[int]bool)
+
+	Solution = nil
+
+	CurrentDepth = 0
+	DepthLock = sync.Mutex{}
+	Depths = make([]sync.WaitGroup, 2048)
+
+	LastDepthLock = sync.Mutex{}
+	LastDepthTime = time.Now()
+	LastDepth = -1
+}
+
+/*
 	Helper function for adding resulting grids to the
 	GridsToProcess array.
 */
-func processGrids(grids []*grid.Grid) {
+func processGrids(grids []*grid.Grid, gridSize int) {
+
+	TestLock.Lock()
+	TestCounter += len(grids)
+	TestLock.Unlock()
+
+	Depths[gridSize].Done()
+	Depths[gridSize].Wait()
+
+	Depths[gridSize + 1].Add(1)
+
+	// Handle printing and information
+	LastDepthLock.Lock()
+	if LastDepth != gridSize && DEBUG {
+		fmt.Println()
+		fmt.Println("Completed Depth", gridSize)
+		tNow := time.Now()
+		fmt.Println("Time to Complete Depth:", fmt.Sprintf("%.2f", float64(tNow.Sub(LastDepthTime)) / float64(time.Second)), "seconds")
+
+		hashSize := 0
+		for i := range Hashes {
+			hashSize += int(unsafe.Sizeof(i))
+		}
+
+		fmt.Println("Total Hashes:", len(Hashes), hashSize / 1024)
+		
+		TestLock.Lock()
+		fmt.Println("Total Grids:", TestCounter)
+		totalStorage := 0
+		for _, grid := range grids {
+			totalStorage += int(unsafe.Sizeof(grid.Checks))
+		}
+		fmt.Println("Average Size:", float64(totalStorage) / float64(len(grids)))
+		TestLock.Unlock()
+
+		f, err := os.Create("memory.prof")
+		if err != nil {
+			fmt.Println(err)
+		}
+		defer f.Close() // error handling omitted for example
+		runtime.GC() // get up-to-date statistics
+		if err := pprof.WriteHeapProfile(f); err != nil {
+			fmt.Println(err)
+		}
+
+		LastDepthTime = tNow
+		LastDepth = gridSize
+
+	}
+	LastDepthLock.Unlock()
+
+	/*
+		If a solution hase already been found, we don't
+		need to do any more processing. Just break out,
+		handling the wait groups appropriately.
+	*/
+	if Solution != nil {
+		solverWaitGroup.Done()
+		return
+	}
 
 	// Pre-compute all the hashes
 	indices := []int{}
@@ -59,10 +158,10 @@ func processGrids(grids []*grid.Grid) {
 	toProcess := []*grid.Grid{}
 	HashLock.Lock()
 	for i, index := range indices {
-		hash := hashes[index]
+		hash := hashes[i]
 		if !Hashes[hash] {
 			Hashes[hash] = true
-			toProcess = append(toProcess, grids[i])
+			toProcess = append(toProcess, grids[index])
 		}
 	}
 	HashLock.Unlock()
@@ -72,11 +171,14 @@ func processGrids(grids []*grid.Grid) {
 	if Solution == nil {
 		solverWaitGroup.Add(len(toProcess))
 		for _, grid := range toProcess {
+			Depths[len(grid.Checks)].Add(1)
 			GridsToProcess <- grid
 		}
 	}
+
 	SolutionLock.Unlock()
 
+	Depths[gridSize + 1].Done()
 	solverWaitGroup.Done()
 
 }
@@ -105,27 +207,57 @@ func Solve(
 		Create the base case where the fox can
 		be anywhere in the grid.
 	*/
-	baseGrid := grid.CreateBlankGrid()
-	for i := range baseGrid.Values {
-		baseGrid.Values[i] = true
-	}
+	repetition, grids := grid.BaseGrid.RepeatingGrid()
 
-	// Start all the solvers
-	for i := 0; i < nSolvers; i++ {
-		go solveRoutine(solver, checks)
-	}
+	// Try for each solution type
+	for i := 0; i < repetition; i++ {
 
-	// Add the baseGrid to the grids to process to get everything started.
-	solverWaitGroup.Add(1)
-	Hashes[baseGrid.Hash()] = true
-	GridsToProcess <- &baseGrid
+		// Log how long a solve is taking
+		t0 := time.Now()
 
-	// Await for all the processing to complete
-	solverWaitGroup.Wait()
+		baseGrid := grids[i]
 
-	// Once everything is completed, kill all the processing routines.
-	for i := 0; i < nSolvers; i++ {
-		solverKillChannel <- true
+		if DEBUG {
+			fmt.Println("Base Grid:", baseGrid)
+		}
+
+		// Reset parameters
+		reset()
+
+		// Start all the solvers
+		for i := 0; i < nSolvers; i++ {
+			go solveRoutine(solver, checks)
+		}
+
+		// Add the baseGrid to the grids to process to get everything started.
+		solverWaitGroup.Add(1)
+		Depths[0].Add(1)
+		Hashes[baseGrid.Hash()] = true
+		GridsToProcess <- baseGrid
+
+		// Await for all the processing to complete
+		solverWaitGroup.Wait()
+
+		// Once everything is completed, kill all the processing routines.
+		for i := 0; i < nSolvers; i++ {
+			solverKillChannel <- true
+		}
+
+		// Log the total time
+		fmt.Println()
+		if Solution != nil {
+			fmt.Println("Solution", Solution)
+			fmt.Println("Solution Length", len(Solution.Checks))
+			fmt.Println("Total Hashes:", len(Hashes))
+			fmt.Println("Time to Process:", fmt.Sprintf("%.2f", float64(time.Since(t0)) / float64(time.Second)), "seconds")
+		} else {
+			fmt.Println("No Solutions Found")
+			fmt.Println("Time to Process:", fmt.Sprintf("%.2f", float64(time.Since(t0)) / float64(time.Second)), "seconds")
+		}
+
+		if DEBUG {
+			break
+		}
 	}
 
 }
@@ -140,16 +272,13 @@ mainLoop:
 	for {
 
 		select {
-		case grid := <-GridsToProcess:
-			newGrids := solver(grid, checks)
-			go processGrids(newGrids)
-			fmt.Println("wg", solverWaitGroup)
+		case gridToProcess := <-GridsToProcess:
+			newGrids := solver(gridToProcess, checks)
+			go processGrids(newGrids, len(gridToProcess.Checks))
 		case <-solverKillChannel:
 			break mainLoop
 		}
 
 	}
-
-	fmt.Println(Solution)
 
 }

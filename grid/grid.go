@@ -2,6 +2,7 @@
 
 package grid
 
+
 /*
 	A grid is an array of bools which indicate whether or
 	not a fox can be there or not.
@@ -15,10 +16,10 @@ type Grid struct {
 	Function for generating a new grid with the appropriate
 	preallocated space.
 */
-func CreateBlankGrid() Grid {
+func CreateBlankGrid() *Grid {
 
 	values := make([]bool, len(BaseGrid.Connections))
-	return Grid{
+	return &Grid{
 		Values: values,
 	}
 
@@ -27,7 +28,7 @@ func CreateBlankGrid() Grid {
 /*
 	Function for copying a grid
 */
-func (grid *Grid) Copy() Grid {
+func (grid *Grid) Copy() *Grid {
 
 	newGrid := CreateBlankGrid()
 	for i, value := range grid.Values {
@@ -46,7 +47,7 @@ func (grid *Grid) Copy() Grid {
 /*
 	Function for propogating a grid
 */
-func (grid *Grid) Propogate() Grid {
+func (grid *Grid) Propogate() *Grid {
 
 	newGrid := CreateBlankGrid()
 	for i, value := range grid.Values {
@@ -65,7 +66,17 @@ func (grid *Grid) Propogate() Grid {
 
 }
 
-func (grid *Grid) PropogateWithChecks(checks map[int]bool) Grid {
+func (grid *Grid) PropogateWithChecksAndAdd(checks map[int]bool) *Grid {
+	newGrid := grid.PropgateWithChecks(checks)
+	newGrid.AddChecks(checks)
+	return newGrid
+}
+
+func (grid *Grid) AddChecks(checks map[int]bool) {
+	grid.Checks = append(grid.Checks, checks)
+}
+
+func (grid *Grid) PropgateWithChecks(checks map[int]bool) *Grid {
 
 	newGrid := CreateBlankGrid()
 	for i, value := range grid.Values {
@@ -81,10 +92,58 @@ func (grid *Grid) PropogateWithChecks(checks map[int]bool) Grid {
 		newChecks[i] = value
 	}
 	newGrid.Checks = newChecks
-	newGrid.Checks = append(newGrid.Checks, checks)
 
 	return newGrid
 
+}
+
+/*
+	Determines what needs to be checked to remove the possiblity of
+	a certain tile appearing in the next propogation. Returns an array
+	of the indexes which need to be checked to perform that removal.
+*/
+func (grid *Grid) HowToRemove(checks map[int]bool) []map[int]bool {
+
+	howToRemove := []map[int]bool{}
+	for i := 0; i < len(grid.Values); i++ {
+		howToRemove = append(howToRemove, map[int]bool{})
+	}
+
+	for i, value := range grid.Values {
+
+		// Don't need to worry if the grid doesn't have this value as a possibility
+		if !value {
+			continue
+		}
+
+		for _, conn := range BaseGrid.Connections[i] {
+			howToRemove[conn][i] = true
+		}
+	}
+
+	return howToRemove
+
+}
+
+/*
+	Determine how many trues are currently in the array
+*/
+func (grid *Grid) NFoxes() int {
+	count := 0
+	for _, value := range grid.Values {
+		if value {
+			count++
+		}
+	}
+	return count
+}
+
+// Used for doing powers way faste
+var POWERS = map[int]int{}
+func init() {
+	for i := 0; i < 1024; i++ {
+		POWERS[i] = power2(i)
+	}
 }
 
 // Helper function for large int powers
@@ -103,15 +162,27 @@ func (grid *Grid) Hash() int {
 
 	// Because of all the symmetries, only grab the lowest hash
 	lowestHash := -1
+	lowestHashFirstIndex := len(BaseGrid.Symmetries[0])
 
 	// Loop through each of the valid symettric configurations
+configurationLoop:
 	for _, configuration := range BaseGrid.Symmetries {
 
 		// Construct this has in the order of the symmetry configuration
 		hash := 0
+		firstIndex := -1
+
 		for power, i := range configuration {
+
+			if firstIndex == -1 && i > lowestHashFirstIndex {
+				continue configurationLoop
+			}
+
 			if grid.Values[i] {
-				hash += power2(power)
+				if firstIndex == -1 {
+					firstIndex = i
+				}
+				hash += POWERS[power]
 			}
 		}
 
@@ -125,4 +196,20 @@ func (grid *Grid) Hash() int {
 	}
 
 	return lowestHash
+}
+
+/*
+	Check if a grid is equal to another grid
+*/
+func (grid *Grid) Equal(other *Grid) bool {
+
+	for i, gridValue := range grid.Values {
+		otherValue := other.Values[i]
+		if gridValue != otherValue {
+			return false
+		}
+	}
+
+	return true
+
 }

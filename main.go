@@ -3,13 +3,17 @@
 package main
 
 import (
+	// "fmt"
+	// "foxhole/grid"
 	"foxhole/solvers"
 )
 
 func main() {
 
+	// fmt.Println(len(solvers.Combinations(5, 2)))
+
 	// fmt.Println(solvers.Hashes)
-	solvers.Solve(solvers.Brute, 1)
+	solvers.Solve(solvers.Brute, 5, 12)
 
 	// g := grid.CreateBlankGrid()
 	// g.Values[0] = true
