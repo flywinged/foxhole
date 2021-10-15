@@ -6,7 +6,10 @@ package grid
 	A grid is an array of bools which indicate whether or
 	not a fox can be there or not.
 */
-type Grid []bool
+type Grid struct {
+	Values []bool
+	Checks []map[int]bool
+}
 
 /*
 	Function for generating a new grid with the appropriate
@@ -14,8 +17,10 @@ type Grid []bool
 */
 func CreateBlankGrid() Grid {
 
-	grid := make([]bool, len(BaseGrid.Connections))
-	return grid
+	values := make([]bool, len(BaseGrid.Connections))
+	return Grid{
+		Values: values,
+	}
 
 }
 
@@ -25,9 +30,14 @@ func CreateBlankGrid() Grid {
 func (grid *Grid) Copy() Grid {
 
 	newGrid := CreateBlankGrid()
-	for i, value := range *grid {
-		newGrid[i] = value
+	for i, value := range grid.Values {
+		newGrid.Values[i] = value
 	}
+	newChecks := make([]map[int]bool, len(grid.Checks))
+	for i, value := range grid.Checks {
+		newChecks[i] = value
+	}
+	newGrid.Checks = newChecks
 
 	return newGrid
 
@@ -39,11 +49,39 @@ func (grid *Grid) Copy() Grid {
 func (grid *Grid) Propogate() Grid {
 
 	newGrid := CreateBlankGrid()
-	for i, value := range *grid {
+	for i, value := range grid.Values {
 		for _, j := range BaseGrid.Connections[i] {
-			newGrid[j] = newGrid[j] || value
+			newGrid.Values[j] = newGrid.Values[j] || value
 		}
 	}
+
+	newChecks := make([]map[int]bool, len(grid.Checks))
+	for i, value := range grid.Checks {
+		newChecks[i] = value
+	}
+	newGrid.Checks = newChecks
+
+	return newGrid
+
+}
+
+func (grid *Grid) PropogateWithChecks(checks map[int]bool) Grid {
+
+	newGrid := CreateBlankGrid()
+	for i, value := range grid.Values {
+		checkedValue := checks[i]
+		for _, j := range BaseGrid.Connections[i] {
+			propogatedValue := !checkedValue && value
+			newGrid.Values[j] = newGrid.Values[j] || propogatedValue
+		}
+	}
+
+	newChecks := make([]map[int]bool, len(grid.Checks))
+	for i, value := range grid.Checks {
+		newChecks[i] = value
+	}
+	newGrid.Checks = newChecks
+	newGrid.Checks = append(newGrid.Checks, checks)
 
 	return newGrid
 
@@ -72,7 +110,7 @@ func (grid *Grid) Hash() int {
 		// Construct this has in the order of the symmetry configuration
 		hash := 0
 		for power, i := range configuration {
-			if (*grid)[i] {
+			if grid.Values[i] {
 				hash += power2(power)
 			}
 		}

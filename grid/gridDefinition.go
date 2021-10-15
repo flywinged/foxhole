@@ -2,6 +2,10 @@
 
 package grid
 
+import (
+	"math"
+)
+
 /*
 	The default grid definition that will be used everywhere.
 	The format for this is a list of connections for each node
@@ -35,7 +39,7 @@ type GridDefinition struct {
 /*
 	Helper function for creating linear foxhole patterns
 */
-func createLinearGrid(n int) *GridDefinition {
+func CreateLinearGrid(n int) *GridDefinition {
 
 	// First create the connections
 	connections := [][]int{}
@@ -65,8 +69,102 @@ func createLinearGrid(n int) *GridDefinition {
 
 }
 
+/*
+	Create n-cube grid.
+*/
+func CreatePrismGrid(dimensionLengths []int) *GridDefinition {
+
+	/*
+		Create the size of each dimension.
+		Use this value to index and un-index things.
+	*/
+	totalCells := 1
+	dimensionSizes := []int{}
+	for _, l := range dimensionLengths {
+		dimensionSizes = append(dimensionSizes, totalCells)
+		totalCells *= l
+	}
+
+	/*
+		Function for determining the location of a cell
+		in the values array given 3D coordinates.
+	*/
+	getIndex := func(location []int) int {
+		index := 0
+		for i, x := range location {
+			index += dimensionSizes[i] * x
+		}
+		return index
+	}
+
+	/*
+		Function for determining the location of a cell in
+		vector form given a value index.
+	*/
+	getLocation := func(index int) []int {
+		location := []int{}
+		for i, size := range dimensionSizes {
+			remainder := index
+			if i < len(dimensionSizes)-1 {
+				remainder = index % dimensionSizes[i+1]
+			}
+
+			x := int(math.Floor(float64(remainder) / float64(size)))
+			location = append(location, x)
+		}
+		return location
+	}
+
+	// Generate the connections array first
+	connections := [][]int{}
+	for i := 0; i < totalCells; i++ {
+		location := getLocation(i)
+
+		// Generate each of the modified locations based on the current location
+		connectionLocations := []int{}
+		for i, x := range location {
+
+			// Move in the negative direction along an axis
+			if x > 0 {
+				newLocation := make([]int, len(location))
+				copy(newLocation, location)
+				newLocation[i] = x - 1
+				connectionLocations = append(connectionLocations, getIndex(newLocation))
+			}
+
+			// Move in the positive direction along an axis
+			if x < dimensionLengths[i]-1 {
+				newLocation := make([]int, len(location))
+				copy(newLocation, location)
+				newLocation[i] = x + 1
+				connectionLocations = append(connectionLocations, getIndex(newLocation))
+			}
+
+		}
+
+		// Add the generated locations for this cell to connections
+		connections = append(connections, connectionLocations)
+
+	}
+
+	// Generate all the symettries
+	baseSymmetry := []int{}
+	for i := 0; i < totalCells; i++ {
+		baseSymmetry = append(baseSymmetry, i)
+	}
+	symmetries := [][]int{baseSymmetry}
+
+	return &GridDefinition{
+		Connections: connections,
+		Symmetries:  symmetries,
+	}
+}
+
 func init() {
 
 	// Original foxhole problem definition
-	BaseGrid = createLinearGrid(5)
+	// BaseGrid = CreateLinearGrid(5)
+
+	BaseGrid = CreatePrismGrid([]int{3, 3})
+
 }

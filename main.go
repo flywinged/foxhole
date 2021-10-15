@@ -3,26 +3,21 @@
 package main
 
 import (
-	"fmt"
-	"foxhole/grid"
+	"foxhole/solvers"
 )
 
 func main() {
 
-	g := grid.CreateBlankGrid()
-	g[1] = true
+	// fmt.Println(solvers.Hashes)
+	solvers.Solve(solvers.Brute, 1)
 
-	fmt.Println(g, g.Hash())
+	// g := grid.CreateBlankGrid()
+	// g.Values[0] = true
+	// g.Values[1] = true
+	// g.Values[2] = true
+	// fmt.Println(g.Values)
 
-	g = g.Propogate()
-	fmt.Println(g, g.Hash())
-
-	g = g.Propogate()
-	fmt.Println(g, g.Hash())
-
-	g = g.Propogate()
-	fmt.Println(g, g.Hash())
-
-	fmt.Println(grid.BaseGrid)
+	// g = g.PropogateWithCheck(1)
+	// fmt.Println(g.Values)
 
 }
